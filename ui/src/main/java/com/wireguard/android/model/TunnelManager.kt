@@ -126,7 +126,7 @@ class TunnelManager(private val configStore: ConfigStore) : BaseObservable() {
         if(!tunnels.isCompleted) return; // This should be loaded only if the tunnels have all been properly initialized
         val workerTag = "WIFI_WORKER"
         val hasAnyTunnelsNeedingWifi =
-            getTunnels().any { tunnel -> getTunnelState(tunnel) == Tunnel.State.UP && tunnel.getConfigAsync().isAutoDisconnectEnabled }
+            getTunnels().any { tunnel -> tunnel.getConfigAsync().isAutoDisconnectEnabled }
         if (hasAnyTunnelsNeedingWifi) {
             Log.d(WIFI_TAG, "There's one or more tunnels that check for Wi-Fi connectivity - (re)loading worker")
             PeriodicWorkRequest
@@ -150,7 +150,7 @@ class TunnelManager(private val configStore: ConfigStore) : BaseObservable() {
             GenericWifiWorker(context).doWork()
         } else {
             // Kill the worker - no need to keep it running
-            Log.d(WIFI_TAG, "There's no more connected tunnels that check for Wi-Fi functionality - killing worker")
+            Log.d(WIFI_TAG, "There's no more tunnels that check for Wi-Fi functionality - killing worker")
             WorkManager.getInstance(context).cancelAllWorkByTag(workerTag)
         }
     }
@@ -319,7 +319,7 @@ class TunnelManager(private val configStore: ConfigStore) : BaseObservable() {
         private var networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 val ssid = getCurrentWifiName()
-                if(ssid == initWifiName) return;
+                if (ssid == initWifiName) return;
 
                 applicationScope.launch {
                     if (ssid == null) {
@@ -328,12 +328,29 @@ class TunnelManager(private val configStore: ConfigStore) : BaseObservable() {
                     }
                     val manager = getTunnelManager()
                     val tunnels = manager.getTunnels().filter { tunnel ->
-                        tunnel.getConfigAsync().isAutoDisconnectEnabled && tunnel.getConfigAsync().autoDisconnectNetworks.split(",").any{ it.trim() == ssid }
+                        tunnel.getConfigAsync().isAutoDisconnectEnabled && tunnel.getConfigAsync().autoDisconnectNetworks.split(",").any { it.trim() == ssid }
                     }
                     tunnels.forEach { tunnel ->
                         try {
                             manager.setTunnelState(tunnel, Tunnel.State.DOWN, Tunnel.StateChangeReason.WIFI_WORKER)
                             Log.d(WIFI_TAG, "Disabled tunnel ${tunnel.name}")
+                        } catch (e: Throwable) {
+                            Log.d(WIFI_TAG, ErrorMessages[e])
+                        }
+                    }
+                }
+            }
+
+            override fun onLost(network: Network) {
+                applicationScope.launch {
+                    val manager = getTunnelManager()
+                    val tunnels = manager.getTunnels().filter { tunnel ->
+                        tunnel.getConfigAsync().isAutoDisconnectEnabled && tunnel.getConfigAsync().autoDisconnectNetworks.split(",").any { true }
+                    }
+                    tunnels.forEach { tunnel ->
+                        try {
+                            manager.setTunnelState(tunnel, Tunnel.State.UP, Tunnel.StateChangeReason.WIFI_WORKER)
+                            Log.d(WIFI_TAG, "Enable tunnel ${tunnel.name}")
                         } catch (e: Throwable) {
                             Log.d(WIFI_TAG, ErrorMessages[e])
                         }
@@ -372,6 +389,6 @@ class TunnelManager(private val configStore: ConfigStore) : BaseObservable() {
 
     companion object {
         private const val TAG = "WireGuard/TunnelManager"
-    private const val WIFI_TAG = "WireGuard/TunnelManager/WIFI"
+        private const val WIFI_TAG = "WireGuard/TunnelManager/WIFI"
     }
 }
